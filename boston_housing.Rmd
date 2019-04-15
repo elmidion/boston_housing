@@ -1,0 +1,273 @@
+---
+title: "The study to Predict the Price of Houses in Boston"
+author: "*Kiseong Park; Doctor, Data scientist*"
+date: "*Monday, April 15, 2019*"
+output: html_notebook
+---
+
+<br>
+
+This study to predict the price of houses in Boston.
+It aims to practice some regression models in R.
+
+The used data in this study was from well-known as 'boston housing data'(http://archive.ics.uci.edu/ml/machine-learning-databases/housing/).
+
+```{r setup, include=FALSE}
+library(dplyr)
+library(ggplot2)
+source("C:/Users/KS-Park/OneDrive/Documents/panel.cor.R")
+library(MASS)
+source("C:/Users/KS-Park/OneDrive/Documents/rmse.R")
+```
+
+
+```{r}
+bh <- read.csv("E:/AI/projects/boston/boston_housing.csv")
+glimpse(bh)
+```
+As you see, it has 506 observastions and 14 variables.
+
+We can find the meaning of each values in 'housing.names' which can be downloaded from website I already mentiond.
+
+`CRIM` is per capita crime rate by town.  
+`ZN` is proportion of residential land zoned for lots over 25,000 sq.ft.  
+`INDUS` is proportion of non-retail business acres per town.  
+`CHAS`  is Charles River dummy variable (= 1 if tract bounds river; 0 otherwise).  
+`NOX` is  nitric oxides concentration (parts per 10 million).  
+`RM`  is  average number of rooms per dwelling.  
+`AGE` is  proportion of owner-occupied units built prior to 1940.  
+`DIS` is  weighted distances to five Boston employment centres.  
+`RAD` is  index of accessibility to radial highways.  
+`TAX` is  full-value property-tax rate per $10,000.  
+`PTRATIO` is  pupil-teacher ratio by town.  
+`B` is  1000(Bk - 0.63)^2 where Bk is the proportion of blacks by town.  
+`LSTAT` is  % lower status of the population.  
+`MEDV` is Median value of owner-occupied homes in $1000's.  
+
+```{r}
+summary(bh)
+```
+```{r}
+pairs(bh, lower.panel = points, upper.panel = panel.cor)
+```
+This scatter plots show `MEDV` has strong correlation with `RM` and `LSTAT`.
+
+<br>
+
+## Dividing into 3 groups; training, validation, and test ##
+
+```{r echo=FALSE}
+set.seed(0415)
+n <- nrow(bh)
+idx <- 1:n
+training_idx <- sample(idx, n*0.6)
+validation_idx <- setdiff(idx, training_idx)
+test_idx <- sample(validation_idx, n*0.2)
+validation_idx <- setdiff(validation_idx, test_idx)
+
+training <- bh[training_idx,]
+validation <- bh[validation_idx,]
+test <- bh[test_idx,]
+
+data.frame(N.training = nrow(training), N.validation = nrow(validation), N.test = nrow(test))
+
+y_obs <- validation$MEDV
+```
+
+I divided boston housing data into 3 groups for training, validation, and test.  
+Training set has 303, validation set has 102, and test set has 101 observastions.
+
+<br>
+
+## Linear regression ##
+
+```{r}
+bh_lm <- lm(MEDV ~ ., bh)
+bh_lm %>% summary()
+bh_lm %>% plot()
+```
+
+We can find non-linear correlation in 'Residuals vs Fitted values' plot of linear regression model.  
+But it shows a graph of quadratic function.   
+It seems to match quadratic functions of the variables.
+
+```{r}
+bh_lm2 <- lm(MEDV ~ .^2, bh)
+bh_lm2 %>% summary()
+bh_lm2 %>% plot()
+```
+```{r results='hide'}
+bh_lm2_step <- stepAIC(bh_lm, scope = list(upper = ~ .^2, lower = ~ 1))
+```
+```{r}
+bh_lm2_step %>% summary()
+bh_lm2_step %>% plot()
+length(bh_lm2_step$coef)
+
+yhat_lm <- predict(bh_lm, newdata = validation)
+yhat_lm2 <- predict(bh_lm2, newdata = validation)
+yhat_lm2_step <- predict(bh_lm2_step, newdata = validation)
+
+rmse_lm <- rmse(y_obs, yhat_lm)
+rmse_lm2 <- rmse(y_obs, yhat_lm2)
+rmse_lm2_step <- rmse(y_obs, yhat_lm2_step)
+
+df_LM <- data.frame(Method = c('LM', 'LM2', 'STEP'), RMSE = c(rmse_lm, rmse_lm2, rmse_lm2_step))
+df_LM
+```
+
+
+<br>
+
+## Lasso Regression ##
+
+```{r message=FALSE}
+library(glmnet)
+
+training.x <- model.matrix(MEDV ~ .-1, training)
+training.y <- training$MEDV
+bh_lasso <- cv.glmnet(training.x, training.y)
+bh_lasso %>% plot()
+
+validation.x <- model.matrix(MEDV ~ .-1, validation)
+yhat_lasso <- predict(bh_lasso, s='lambda.min', newx = validation.x)
+
+rmse_Lasso <- rmse(y_obs, yhat_lasso)
+
+df_Lasso <- data.frame(Method = 'Lasso', RMSE = rmse_Lasso) 
+df_Lasso
+```
+
+<br>
+
+## Ridge Regression ##
+
+```{r}
+bh_ridge <- cv.glmnet(training.x, training.y, alpha = 0)
+bh_ridge %>% plot()
+
+yhat_ridge <- predict(bh_ridge, newx = validation.x)
+yhat_ridge <- yhat_ridge[,1]
+
+rmse_ridge <- rmse(y_obs, yhat_ridge)
+
+df_Ridge <- data.frame(Method = 'Ridge', RMSE = rmse_ridge)
+df_Ridge
+```
+
+<br>
+
+## Elastir Regression ##
+
+```{r}
+bh_elastic <- cv.glmnet(training.x, training.y, alpha=0.5)
+bh_elastic %>% plot()
+
+yhat_elastic <- predict(bh_elastic, s='lambda.min', newx = validation.x)
+yhat_elastic <- yhat_elastic[,1]
+
+rmse_elastic <- rmse(y_obs, yhat_elastic)
+
+df_elastic <- data.frame(Method = 'Elastic', RMSE = rmse_elastic)
+df_elastic
+```
+
+<br>
+
+## Regression Tree ##
+
+```{r}
+library(rpart)
+bh_rt <- rpart(MEDV ~ ., training)
+
+printcp(bh_rt)
+bh_rt %>% plot(); text(bh_rt, use.n = T)
+
+yhat_rt <- predict(bh_rt, newdata = validation)
+rmse_rt <- rmse(y_obs, yhat_rt)
+
+df_RT <- data.frame(Method = 'RT', RMSE = rmse_rt)
+df_RT
+```
+
+<br>
+
+## RandomForest ##
+
+```{r message=FALSE}
+library(randomForest)
+
+set.seed(0415)
+
+bh_rf <- randomForest(MEDV ~ ., training)
+bh_rf
+bh_rf %>% plot()
+bh_rf %>% varImpPlot()
+
+yhat_rf <- predict(bh_rf, newdata = validation)
+rmse_rf <- rmse(y_obs, yhat_rf)
+
+df_RF <- data.frame(Method='RF', RMSE=rmse_rf)
+df_RF
+```
+
+<br>
+
+## Gradient Boosting Machine ##
+```{r}
+library(gbm)
+
+set.seed(0415)
+
+bh_gbm <- gbm(MEDV ~ ., data=training, n.trees = 1000, cv.folds = 3, verbose = T)
+bh_gbm
+
+best_iter <- gbm.perf(bh_gbm, method='cv')
+
+yhat_gbm <- predict(bh_gbm, n.trees = best_iter, newdata = validation)
+rmse_gbm <- rmse(y_obs, yhat_gbm)
+
+df_GBM <- data.frame(Method='GBM', RMSE = rmse_gbm)
+df_GBM
+```
+
+<br>
+
+## Model Selection ##
+```{r}
+df_result <- rbind(df_LM, df_Lasso, df_Ridge, df_elastic, df_RT, df_RF, df_GBM)
+df_result[order(df_result$RMSE),]
+
+```
+
+```{r}
+boxplot(list(LM = y_obs - yhat_lm,
+        LM2 = y_obs - yhat_lm2,
+        STEP = y_obs - yhat_lm2_step,
+        Lasso = y_obs - yhat_lasso,
+        Ridge = y_obs - yhat_ridge,
+        Elastic = y_obs - yhat_elastic,
+        RT = y_obs - yhat_rt,
+        RF = y_obs - yhat_rf,
+        GBM = y_obs - yhat_gbm))
+abline(h = 0, lty=2, col='blue')
+
+pairs(data.frame(y_obs, yhat_lm, yhat_lm2, yhat_lm2_step, yhat_lasso, yhat_ridge, yhat_elastic, yhat_rt, yhat_rf, yhat_gbm), upper.panel = panel.cor)
+```
+
+
+
+## Test ##
+
+```{r}
+y_test <- test$MEDV
+
+yhat_lm2_test <- predict(bh_lm2, newdata = test)
+rmse_lm2_test <- rmse(y_test, yhat_lm2_test)
+
+yhat_step_test <- predict(bh_lm2_step, newdata = test)
+rmse_step_test <- rmse(y_test, yhat_step_test)
+
+data.frame(Method=c('LM2','Step'),RMSE=c(rmse_lm2_test, rmse_step_test))
+```
+
